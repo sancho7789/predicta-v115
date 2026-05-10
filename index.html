@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>🚀 Predicta v11.5 Hybrid</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0b0f1a">
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Predicta v11.5">
+
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="style.css">
+<link rel="apple-touch-icon" href="icon-180x180.png">
+</head>
+
+<body id="body">
+
+<div class="app-container">
+
+  <h2>🚀 Predicta v11.5 Hybrid</h2>
+
+  <div class="input-block">
+    <input id="inputBox"
+      type="text"
+      placeholder="Paste multipliers here..."
+      autocomplete="off"
+      spellcheck="false" />
+
+    <button id="analyzeBtn" class="analyze-btn">
+      ANALYZE
+    </button>
+  </div>
+
+  <div id="signalBar" class="signal-bar"></div>
+
+  <div class="output-block">
+    <div id="pattern"></div>
+    <div id="pressure"></div>
+    <div id="confidence"></div>
+    <div id="decision"></div>
+    <div id="window"></div>
+    <div id="countdown"></div>
+  </div>
+
+  <div class="stats-block">
+    <div id="accuracy"></div>
+    <div id="session"></div>
+    <div id="stake"></div>
+  </div>
+
+  <!-- HYBRID PANEL -->
+  <div class="stats-block">
+    <div id="hybridMode"></div>
+    <div id="hybridStake"></div>
+    <div id="hybridRounds"></div>
+  </div>
+
+</div>
+
+<script>
+	(function(){
+
+let debounceTimer = null;
+
+/* =========================
+   🔷 HYBRID STATE v11.5
+========================= */
+let hybrid = {
+  mode: "IDLE",
+  lastDataLength: 0,
+  lastPressure: 0,
+  lastGap: 0,
+
+  // Trade system
+  inTrade: false,
+  tradeRounds: 0,
+  maxTradeRounds: 3,
+
+  // Discipline
+  softLock: 0,
+  hardLock: 0,
+
+  // Continuation
+  continuationWatch: 0,
+
+  // Regime
+  regime: "UNKNOWN",
+  lastSpike: 0,
+
+  // Stability
+  lastGaps: [],
+  stability: 1,
+  chaosBoost: 0,
+
+  // Adaptive Exit
+  entryPressure: 0,
+  deadTrade: false,
+
+  // Transitional Release
+  releaseVelocity: 0,
+  transitionBias: 0,
+  loadedCompression: false,
+
+  // 🔥 V11.5
+  pressurePeak: 0,
+  momentumDecay: 0,
+  recentWins: 0,
+  pressureMemory: [],
+};
+
+/* =========================
+   PARSER
+========================= */
+
+function parseData(text){
+
+  return text
+    .split(/[\s,]+/)
+    .map(x => parseFloat(x.replace('x','')))
+    .filter(x => !isNaN(x));
+}
+
+/* =========================
+   CORE ENGINE
+========================= */
+
+function analyze(){
+
+  const raw =
+    document.getElementById("inputBox").value;
+
+  const data = parseData(raw);
+
+  if(data.length < 20) return;
+
+  const last =
+    data[data.length - 1];
+
+  let newRound = false;
+
+  if(data.length !== hybrid.lastDataLength){
+
+    newRound = true;
+    hybrid.lastDataLength = data.length;
+  }
+
+  /* =========================
+     📊 GAP + STABILITY
+  ========================= */
+
+  const lastHighIndex =
+    [...data].reverse().findIndex(x => x >= 10);
+
+  const gapNow =
+    lastHighIndex === -1
+    ? data.length
+    : lastHighIndex;
+
+  const highs =
+    data.filter(x => x >= 10);
+
+  const avgGapRaw =
+    highs.length > 1
+    ? data.length / highs.length
+    : 30;
+
+  hybrid.lastGaps.push(avgGapRaw);
+
+  if(hybrid.lastGaps.length > 10){
+    hybrid.lastGaps.shift();
+  }
+
+  const sorted =
+    [...hybrid.lastGaps].sort((a,b)=>a-b);
+
+  const avgGap = Math.max(
+    6,
+    Math.round(
+      sorted[Math.floor(sorted.length / 2)]
+    )
+  );
+
+  const variance =
+    hybrid.lastGaps.reduce(
+      (a,b)=>a + Math.abs(b - avgGap),0
+    ) / hybrid.lastGaps.length;
+
+  hybrid.stability = Math.max(
+    0.4,
+    1 - (variance / avgGap)
+  );
+
+  /* =========================
+     🧠 REGIME DETECTION
+  ========================= */
+
+  if(last >= 100){
+
+    hybrid.regime = "RESET";
+
+    hybrid.lastSpike = 0;
+
+    hybrid.hardLock = 1;
+  }
+  else{
+
+    hybrid.lastSpike++;
+
+    if(hybrid.lastSpike <= 2){
+
+      hybrid.regime = "POST-SPIKE";
+    }
+
+    else if(
+      gapNow >= avgGap * 0.65 &&
+      hybrid.stability > 0.60
+    ){
+
+      hybrid.regime = "EXPANSION";
+    }
+
+    else if(
+      gapNow < avgGap * 0.45
+    ){
+
+      hybrid.regime = "COMPRESSION";
+    }
+
+    else{
+
+      hybrid.regime = "NEUTRAL";
+    }
+  }
+
+  /* =========================
+     ⚙️ PRESSURE ENGINE
+  ========================= */
+
+  let basePressure =
+    (gapNow / avgGap) * 100;
+
+  let structuredPressure =
+    basePressure *
+    Math.max(0.65, hybrid.stability);
+
+  const unstableExpansion =
+    gapNow >= avgGap * 1.15 &&
+    hybrid.stability < 0.65;
+
+  if(unstableExpansion){
+
+    hybrid.chaosBoost = Math.min(
+      hybrid.chaosBoost + 10,
+      40
+    );
+  }
+  else{
+
+    hybrid.chaosBoost *= 0.85;
+  }
+
+  /* =========================
+     🔥 VELOCITY
+  ========================= */
+
+  hybrid.releaseVelocity =
+    Math.max(
+      0,
+      structuredPressure - hybrid.lastPressure
+    );
+
+  let velocityBoost = 0;
+
+  if(hybrid.releaseVelocity >= 8){
+
+    velocityBoost = 10;
+  }
+  else if(hybrid.releaseVelocity >= 5){
+
+    velocityBoost = 6;
+  }
+
+  /* =========================
+     🔥 TRANSITIONAL BIAS
+  ========================= */
+
+  hybrid.transitionBias = 0;
+
+  if(
+    hybrid.regime === "POST-SPIKE" &&
+    gapNow >= avgGap * 0.30
+  ){
+    hybrid.transitionBias += 10;
+  }
+
+  /* =========================
+     🔍 COMPRESSION ANALYSIS
+  ========================= */
+
+  const last8 = data.slice(-8);
+
+  const lowCount =
+    last8.filter(x => x < 2).length;
+
+  const micro =
+    last8.filter(x => x < 1.3).length;
+
+  hybrid.loadedCompression =
+    lowCount >= 4 &&
+    micro >= 2 &&
+    gapNow >= avgGap * 0.45;
+
+  if(hybrid.loadedCompression){
+    hybrid.transitionBias += 12;
+  }
+
+  if(hybrid.releaseVelocity >= 5){
+    hybrid.transitionBias += 10;
+  }
+
+  const compressionValid =
+    lowCount >= 5 &&
+    micro >= 3 &&
+    hybrid.stability > 0.68;
+
+  /* =========================
+     🔥 FINAL PRESSURE
+  ========================= */
+
+  let pressure =
+    structuredPressure +
+    hybrid.chaosBoost +
+    velocityBoost +
+    hybrid.transitionBias;
+
+  /* =========================
+     🔥 PRESSURE SATURATION FIX
+  ========================= */
+
+  if(pressure > 140){
+
+    pressure =
+      140 +
+      ((pressure - 140) * 0.45);
+  }
+
+  pressure = Math.min(
+    185,
+    Math.round(pressure)
+  );
+
+  hybrid.pressurePeak =
+    Math.max(
+      hybrid.pressurePeak * 0.92,
+      pressure
+    );
+
+  hybrid.pressureMemory.push(pressure);
+
+  if(hybrid.pressureMemory.length > 6){
+    hybrid.pressureMemory.shift();
+  }
+
+  const avgPressureMemory =
+    hybrid.pressureMemory.reduce((a,b)=>a+b,0) /
+    hybrid.pressureMemory.length;
+
+  let confidence =
+    Math.min(
+      100,
+      Math.round(
+        pressure *
+        Math.max(0.55, hybrid.stability)
+      )
+    );
+
+  const pressureRising =
+    pressure > hybrid.lastPressure + 2;
+
+  /* =========================
+     🔄 TRADE MANAGEMENT
+  ========================= */
+
+  if(newRound){
+
+    if(hybrid.softLock > 0){
+      hybrid.softLock--;
+    }
+
+    if(hybrid.hardLock > 0){
+      hybrid.hardLock--;
+    }
+
+    if(hybrid.continuationWatch > 0){
+      hybrid.continuationWatch--;
+    }
+
+    if(hybrid.inTrade){
+
+      hybrid.tradeRounds++;
+
+      /* =========================
+         🔥 DEAD TRADE DETECTION
+      ========================= */
+
+      const pressureCollapse =
+        pressure <
+        hybrid.entryPressure * 0.50;
+
+      const regimeCollapse =
+        hybrid.regime === "COMPRESSION" &&
+        gapNow < avgGap * 0.35;
+
+      /* =========================
+         🔥 TRADE DECAY
+      ========================= */
+
+      if(
+        pressure < hybrid.lastPressure &&
+        pressure < avgPressureMemory
+      ){
+        hybrid.momentumDecay++;
+      }
+      else{
+        hybrid.momentumDecay = 0;
+      }
+
+      const staleTrade =
+        hybrid.momentumDecay >= 2;
+
+      if(
+        hybrid.tradeRounds >= 1 &&
+        (
+          pressureCollapse ||
+          regimeCollapse ||
+          staleTrade
+        )
+      ){
+        hybrid.deadTrade = true;
+      }
+
+      /* =========================
+         WIN
+      ========================= */
+
+      if(last >= 10){
+
+        hybrid.inTrade = false;
+
+        hybrid.tradeRounds = 0;
+
+        hybrid.deadTrade = false;
+
+        hybrid.momentumDecay = 0;
+
+        hybrid.recentWins++;
+
+        /* 🔥 RE-ARM SYSTEM */
+
+        if(
+          pressure > 85 ||
+          hybrid.regime === "EXPANSION"
+        ){
+          hybrid.continuationWatch = 2;
+        }
+        else{
+          hybrid.continuationWatch = 1;
+        }
+      }
+
+      /* =========================
+         DEAD EXIT
+      ========================= */
+
+      else if(hybrid.deadTrade){
+
+        hybrid.inTrade = false;
+
+        hybrid.tradeRounds = 0;
+
+        hybrid.deadTrade = false;
+
+        hybrid.momentumDecay = 0;
+
+        hybrid.softLock = 1;
+      }
+
+      /* =========================
+         NORMAL LOSS
+      ========================= */
+
+      else if(
+        hybrid.tradeRounds >=
+        hybrid.maxTradeRounds
+      ){
+
+        hybrid.inTrade = false;
+
+        hybrid.tradeRounds = 0;
+
+        hybrid.momentumDecay = 0;
+
+        hybrid.softLock = 1;
+
+        /* =========================
+           🔥 SMART HARD LOCK
+        ========================= */
+
+        const severeCollapse =
+          pressure < 45 &&
+          hybrid.stability < 0.52 &&
+          hybrid.regime !== "EXPANSION";
+
+        const noMomentum =
+          avgPressureMemory < 55;
+
+        const weakSession =
+          hybrid.recentWins <= 0;
+
+        if(
+          severeCollapse &&
+          noMomentum &&
+          weakSession
+        ){
+          hybrid.hardLock = 2;
+        }
+      }
+    }
+  }
+
+  /* =========================
+     🚫 ENTRY CONTROL
+  ========================= */
+
+  const allowEntry =
+    !hybrid.inTrade &&
+    hybrid.hardLock === 0 &&
+    (
+      hybrid.softLock === 0 ||
+      pressureRising
+    ) &&
+    hybrid.regime !== "RESET";
+
+  let decision = "❌ WAIT";
+  let stake = "x0.50";
+
+  /* =========================
+     🎯 TRANSITION ENTRY
+  ========================= */
+
+  if(
+    allowEntry &&
+    (
+      (
+        hybrid.regime === "EXPANSION" &&
+        pressure >= 72 &&
+        pressureRising &&
+        hybrid.stability > 0.55
+      )
+
+      ||
+
+      (
+        unstableExpansion &&
+        pressure >= 66
+      )
+
+      ||
+
+      (
+        hybrid.transitionBias >= 20 &&
+        pressure >= 62
+      )
+    )
+  ){
+
+    decision = "🎯 TRANSITION ENTRY";
+
+    stake = "x1.40";
+
+    hybrid.inTrade = true;
+
+    hybrid.tradeRounds = 0;
+
+    hybrid.maxTradeRounds = 3;
+
+    hybrid.entryPressure = pressure;
+
+    hybrid.deadTrade = false;
+
+    hybrid.momentumDecay = 0;
+  }
+
+  /* =========================
+     ⚡ EARLY RELEASE
+  ========================= */
+
+  else if(
+    allowEntry &&
+    compressionValid &&
+    pressure >= 56 &&
+    pressureRising
+  ){
+
+    decision =
+      "⚡ EARLY RELEASE";
+
+    stake = "x1.20";
+
+    hybrid.inTrade = true;
+
+    hybrid.tradeRounds = 0;
+
+    hybrid.maxTradeRounds = 2;
+
+    hybrid.entryPressure = pressure;
+
+    hybrid.deadTrade = false;
+
+    hybrid.momentumDecay = 0;
+  }
+
+  /* =========================
+     🔁 CONTINUATION
+  ========================= */
+
+  else if(
+    allowEntry &&
+    hybrid.continuationWatch > 0 &&
+    pressure >= 64
+  ){
+
+    decision =
+      "🔁 CONTINUATION";
+
+    stake = "x1.30";
+
+    hybrid.inTrade = true;
+
+    hybrid.tradeRounds = 0;
+
+    hybrid.maxTradeRounds = 2;
+
+    hybrid.entryPressure = pressure;
+
+    hybrid.deadTrade = false;
+
+    hybrid.momentumDecay = 0;
+  }
+
+  /* =========================
+     ACTIVE TRADE
+  ========================= */
+
+  if(hybrid.inTrade){
+
+    if(hybrid.deadTrade){
+
+      decision =
+        "🟠 EXITING DEAD TRADE (" +
+        hybrid.tradeRounds +
+        "/" +
+        hybrid.maxTradeRounds +
+        ")";
+    }
+    else{
+
+      decision =
+        "🟢 IN TRADE (" +
+        hybrid.tradeRounds +
+        "/" +
+        hybrid.maxTradeRounds +
+        ")";
+    }
+  }
+
+  /* =========================
+     📤 OUTPUT
+  ========================= */
+
+  document.getElementById("pattern").innerText =
+    "Mode: V11.5 STABILIZED TRANSITION | Regime: " +
+    hybrid.regime +
+    " | AvgGap: " +
+    avgGap +
+    " | Stability: " +
+    hybrid.stability.toFixed(2);
+
+  document.getElementById("pressure").innerText =
+    "Pressure: " + pressure + "%";
+
+  document.getElementById("confidence").innerText =
+    "Confidence: " + confidence + "%";
+
+  document.getElementById("decision").innerText =
+    "Decision: " + decision;
+
+  document.getElementById("window").innerText =
+    "Gap: " +
+    gapNow +
+    " / " +
+    avgGap;
+
+  document.getElementById("stake").innerText =
+    "Stake: " + stake;
+
+  document.getElementById("hybridMode").innerText =
+    "LOCK: " +
+    (
+      hybrid.hardLock > 0
+      ? "HARD"
+      : hybrid.softLock > 0
+      ? "SOFT"
+      : "OPEN"
+    );
+
+  document.getElementById("hybridStake").innerText =
+    "CONT: " +
+    hybrid.continuationWatch;
+
+  document.getElementById("hybridRounds").innerText =
+    "TRADE: " +
+    (
+      hybrid.inTrade
+      ? "ACTIVE"
+      : "IDLE"
+    ) +
+    " | " +
+    hybrid.tradeRounds +
+    "/" +
+    hybrid.maxTradeRounds;
+
+  hybrid.lastPressure = pressure;
+  hybrid.lastGap = gapNow;
+}
+
+/* =========================
+   INPUT ENGINE
+========================= */
+
+function triggerAnalyze(){
+
+  clearTimeout(debounceTimer);
+
+  debounceTimer =
+    setTimeout(analyze, 120);
+}
+
+const input =
+  document.getElementById("inputBox");
+
+input.addEventListener("paste", () => {
+
+  setTimeout(triggerAnalyze, 50);
+});
+
+input.addEventListener(
+  "input",
+  triggerAnalyze
+);
+
+document.getElementById("analyzeBtn")
+  .addEventListener("click", analyze);
+
+})();
+</script>
+
+</body>
+</html>
